@@ -12,11 +12,13 @@ import time
 import os
 from io import BytesIO
 from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 import subprocess
 import sys
 
 plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
 plt.rcParams["axes.unicode_minus"] = False
+plt.rcParams['font.family'] = ['Microsoft JhengHei', 'Segoe UI Emoji']
 
 def get_channel_handle():
     print("-------------------------------------")
@@ -54,7 +56,7 @@ options.add_argument('--log-level=1')
 options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
 # Service 隱藏 chromedriver.log
-service = Service(log_path=os.devnull, pipe_output=True)
+service = Service(executable_path=ChromeDriverManager().install(), log_path=os.devnull, pipe_output=True)
 
 # Windows 系統下隱藏命令視窗 (可選)
 if sys.platform.startswith('win'):
@@ -126,19 +128,19 @@ while True:
         break
     last_height = new_height
 
-videos = driver.find_elements(By.CSS_SELECTOR, "ytd-rich-grid-media")
+videos = driver.find_elements(By.CSS_SELECTOR, "ytd-rich-item-renderer")
 print(f"找到 {len(videos)} 部長影片")
 
 long_titles, long_views, long_dates = [], [], []
-with tqdm(videos, desc="處理長影片資料中") as pbar:
+with tqdm(videos, desc="處理長影片資料中", file=sys.stdout) as pbar:
     skip_count_long = 0
     for video in pbar:
         try:
-            title = video.find_element(By.ID, "video-title").text
-            view_element = video.find_element(By.XPATH, ".//span[contains(text(), '觀看')]")
-            view_text = view_element.text
+            title = video.find_element(By.CSS_SELECTOR, "a.ytLockupMetadataViewModelTitle").get_attribute("innerText")
+            view_element = video.find_element(By.XPATH, ".//*[contains(text(), '觀看')]")
+            view_text = view_element.get_attribute("innerText")
             view_count = parse_view_count(view_text)
-            date_text = video.find_element(By.XPATH, ".//span[contains(text(), '前')]").text
+            date_text = video.find_element(By.XPATH, ".//*[contains(text(), '前')]").get_attribute("innerText")
 
             long_titles.append(title)
             long_views.append(int(view_count))
@@ -171,7 +173,7 @@ shorts = driver.find_elements(By.CSS_SELECTOR, "ytm-shorts-lockup-view-model-v2"
 print(f"找到 {len(shorts)} 部短影音")
 
 short_titles, short_views = [], []
-with tqdm(shorts, desc="處理短影音資料中") as pbar:
+with tqdm(shorts, desc="處理短影音資料中", file=sys.stdout) as pbar:
     skip_count_short = 0
     for short in pbar:
         try:
