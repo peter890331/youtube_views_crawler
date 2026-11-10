@@ -1,41 +1,53 @@
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from datetime import datetime
-from tqdm import tqdm
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from PIL import Image
-import requests
-import time
 import os
-from io import BytesIO
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 import subprocess
 import sys
+import time
+from datetime import datetime
+from io import BytesIO
+
+import matplotlib
+import requests
+from PIL import Image
+
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+from tqdm import tqdm
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+from webdriver_manager.chrome import ChromeDriverManager
 
 plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
 plt.rcParams["axes.unicode_minus"] = False
 plt.rcParams['font.family'] = ['Microsoft JhengHei', 'Segoe UI Emoji']
 
+
 def get_channel_handle():
-    print("-------------------------------------")
-    print("歡迎使用 youtube_views_crawler！")
-    print("-------------------------------------")
+    print("\n")
+    print(" \033[96m╔════════════════════════════════════════╗\033[0m")
+    print(" \033[96m║         youtube_views_crawler          ║\033[0m")
+    print(" \033[96m╚════════════════════════════════════════╝\033[0m")
+    print("\n")
+
     while True:
-        channel_handle = input("請輸入 YouTube 頻道 ID（例如：@peter0331）：")
+        channel_handle = input("請輸入 YouTube 頻道 ID (例如 @peter0331)：")
         if not channel_handle:
-            print("錯誤：頻道名稱不能為空，請重新輸入。")
+            print("頻道名稱不能為空，請重新輸入。")
         elif not channel_handle.startswith("@"):
             return "@" + channel_handle
         else:
             return channel_handle
 
+
 channel_handle = get_channel_handle()
 print(f"即將處理頻道：{channel_handle}")
 print("-------------------------------------")
+
 print(" * 啟動 Selenium")
 
 original_stdout = sys.stdout
@@ -49,16 +61,11 @@ options.add_argument("--use-fake-ui-for-media-stream")
 options.add_argument("--use-fake-device-for-media-stream")
 options.add_experimental_option("prefs", {"profile.default_content_setting_values.media_stream_camera": 2})
 options.add_argument("--headless=new")
-options.add_argument("--disable-gpu")
 options.add_argument('--log-level=1')
-
-# 避免 Chrome 輸出「DevTools listening」等冗餘日誌
 options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
-# Service 隱藏 chromedriver.log
 service = Service(executable_path=ChromeDriverManager().install(), log_path=os.devnull, pipe_output=True)
 
-# Windows 系統下隱藏命令視窗 (可選)
 if sys.platform.startswith('win'):
     service.creationflags = subprocess.CREATE_NO_WINDOW
 
@@ -67,29 +74,39 @@ driver = webdriver.Chrome(service=service, options=options)
 sys.stdout.close()
 sys.stdout = original_stdout
 
-def check_error_page(driver):
-    try:
-        return "404 Not Found" in driver.title
-    except:
-        return False
 
 def get_profile_picture_from_shorts():
     try:
-        img_element = driver.find_element(By.CSS_SELECTOR, "img#avatar-section.yt-img-shadow")
-        img_url = img_element.get_attribute("src")
-    except:
-        try:
-            img_element = driver.find_element(By.CSS_SELECTOR, "img.yt-spec-avatar-shape__image")
-            img_url = img_element.get_attribute("src")
-        except:
+        selectors = [
+            "yt-page-header-view-model yt-avatar-shape img",
+            "#channel-header-container yt-avatar-shape img",
+            "img.yt-spec-avatar-shape__image",
+            "img#avatar-section.yt-img-shadow"
+        ]
+
+        img_url = None
+        for selector in selectors:
+            try:
+                elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                for el in elements:
+                    src = el.get_attribute("src")
+                    if src and src.startswith("http"):
+                        img_url = src
+                        break
+                if img_url:
+                    break
+            except:
+                continue
+
+        if not img_url:
             return None
 
-    try:
         response = requests.get(img_url)
         img = Image.open(BytesIO(response.content))
         return img
     except Exception:
         return None
+
 
 def parse_view_count(view_text):
     view_text = view_text.replace("觀看次數：", "").replace("觀看次數", "").replace("次", "").strip()
@@ -103,21 +120,18 @@ def parse_view_count(view_text):
     except:
         raise ValueError("無法解析觀看次數")
 
+
 # --- 抓長影片 ---
 long_url = f"https://www.youtube.com/{channel_handle}/videos"
-print(f"載入長影片頁面：{long_url}")
+print(f"\n載入長影片頁面：{long_url}")
 driver.get(long_url)
-time.sleep(2)
 
-if check_error_page(driver):
-    print("錯誤：無法瀏覽該頻道頁面，請檢查頻道名稱是否正確。")
-    driver.quit()
-    print(" * 關閉 Selenium")
-    print("-------------------------------------")
-    input("按 Enter 鍵退出...")
-    exit()
+try:
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "ytd-rich-grid-renderer")))
+except:
+    pass
 
-print("正在自動滾動載入長影片資料...")
+print("\n正在自動滾動載入長影片資料...")
 scroll_pause_time = 0.5
 last_height = driver.execute_script("return document.documentElement.scrollHeight")
 while True:
@@ -129,7 +143,7 @@ while True:
     last_height = new_height
 
 videos = driver.find_elements(By.CSS_SELECTOR, "ytd-rich-item-renderer")
-print(f"找到 {len(videos)} 部長影片")
+print(f"\n找到 {len(videos)} 部長影片")
 
 long_titles, long_views, long_dates = [], [], []
 with tqdm(videos, desc="處理長影片資料中", file=sys.stdout) as pbar:
@@ -137,28 +151,32 @@ with tqdm(videos, desc="處理長影片資料中", file=sys.stdout) as pbar:
     for video in pbar:
         try:
             title = video.find_element(By.CSS_SELECTOR, "a.ytLockupMetadataViewModelTitle").get_attribute("innerText")
-            view_element = video.find_element(By.XPATH, ".//*[contains(text(), '觀看')]")
-            view_text = view_element.get_attribute("innerText")
+            view_element = video.find_element(By.XPATH, ".//span[contains(@aria-label, '觀看')]")
+            view_text = view_element.get_attribute("aria-label")
             view_count = parse_view_count(view_text)
             date_text = video.find_element(By.XPATH, ".//*[contains(text(), '前')]").get_attribute("innerText")
 
             long_titles.append(title)
             long_views.append(int(view_count))
             long_dates.append(date_text)
+
         except Exception:
             skip_count_long += 1
             pbar.set_postfix({"跳過會員專屬長影片 :": f"{skip_count_long} 部"})
 
-
 # --- 抓短影音 ---
 shorts_url = f"https://www.youtube.com/{channel_handle}/shorts"
-print(f"載入短影音頁面：{shorts_url}")
+print(f"\n載入短影音頁面：{shorts_url}")
 driver.get(shorts_url)
-time.sleep(2)
+
+try:
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "ytm-shorts-lockup-view-model-v2")))
+except:
+    pass
 
 profile_img = get_profile_picture_from_shorts()
 
-print("正在自動滾動載入短影音資料...")
+print("\n正在自動滾動載入短影音資料...")
 scroll_pause_time = 0.5
 last_height = driver.execute_script("return document.documentElement.scrollHeight")
 while True:
@@ -170,7 +188,7 @@ while True:
     last_height = new_height
 
 shorts = driver.find_elements(By.CSS_SELECTOR, "ytm-shorts-lockup-view-model-v2")
-print(f"找到 {len(shorts)} 部短影音")
+print(f"\n找到 {len(shorts)} 部短影音")
 
 short_titles, short_views = [], []
 with tqdm(shorts, desc="處理短影音資料中", file=sys.stdout) as pbar:
@@ -178,19 +196,21 @@ with tqdm(shorts, desc="處理短影音資料中", file=sys.stdout) as pbar:
     for short in pbar:
         try:
             title = short.find_element(By.CLASS_NAME, "shortsLockupViewModelHostMetadataTitle").text
-            view_element = short.find_element(By.XPATH, ".//span[contains(text(), '觀看')]")
+            view_element = short.find_element(By.XPATH, ".//*[contains(text(), '觀看')]")
             view_text = view_element.text
             view_count = parse_view_count(view_text)
 
             short_titles.append(title)
             short_views.append(int(view_count))
+
         except Exception:
             skip_count_short += 1
             pbar.set_postfix({"跳過會員專屬短影音 :": f"{skip_count_short} 部"})
 
 driver.quit()
-print(" * 關閉 Selenium")
+print("\n * 關閉 Selenium")
 print("-------------------------------------")
+
 
 # --- 畫圖 ---
 def plot_combined_chart(long_titles, long_views, short_titles, short_views, profile_img):
@@ -219,24 +239,8 @@ def plot_combined_chart(long_titles, long_views, short_titles, short_views, prof
     short_titles, short_views_plot, short_unit = preprocess(short_titles, short_views)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=False)
-    fig.suptitle(f"{channel_handle} 頻道公開影片觀看次數統計圖（截至 {datetime.today().strftime('%Y/%m/%d')}）", fontsize=16)
-
-    if profile_img:
-        try:
-            size = (60, 60)
-            profile_img = profile_img.resize(size).convert("RGBA")
-            mask_draw = Image.new("L", size, 0)
-            for y in range(size[1]):
-                for x in range(size[0]):
-                    if (x - size[0] / 2) ** 2 + (y - size[1] / 2) ** 2 < (size[0] / 2) ** 2:
-                        mask_draw.putpixel((x, y), 255)
-            profile_img.putalpha(mask_draw)
-
-            fig.figimage(profile_img, 20, fig.bbox.ymax - 80)
-        except Exception as e:
-            print("錯誤：插入大頭貼失敗:", e)
-
-    import matplotlib.ticker as ticker
+    fig.suptitle(f"{channel_handle} 頻道公開影片觀看次數統計圖（截至 {datetime.today().strftime('%Y/%m/%d')}）",
+                 fontsize=16)
 
     def plot_subplot(ax, views, titles, color, label, unit):
         count = len(views)
@@ -265,7 +269,6 @@ def plot_combined_chart(long_titles, long_views, short_titles, short_views, prof
         ax.set_ylabel(f"{label}觀看（{unit}）", fontsize=11)
         ax.set_ylim(top=max(views) * 1.2)
 
-        # x 軸刻度：避免過密和重複
         if count <= 20:
             ax.set_xticks(range(count))
             ax.set_xticklabels(range(1, count + 1))
@@ -277,11 +280,9 @@ def plot_combined_chart(long_titles, long_views, short_titles, short_views, prof
             ax.set_xticks(ticks)
             ax.set_xticklabels([i + 1 for i in ticks])
 
-        # y 軸刻度設定，限制最大刻度數量避免重複
         ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=6, integer=True, prune='both'))
         ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x)}"))
 
-        # 文字放左上角
         text_x, text_y = 0.02, 0.95
         max_title_ = max_title if len(max_title) <= 50 else max_title[:50] + "..."
 
@@ -290,9 +291,8 @@ def plot_combined_chart(long_titles, long_views, short_titles, short_views, prof
         elif unit == "億次":
             original_view = max_view * 100_000_000
         else:
-            original_view = max_view  # 萬一沒轉換過
+            original_view = max_view
 
-        # 根據原始觀看數來決定格式
         if original_view < 10_000:
             view_str = f"{int(round(original_view))}"
             ax.text(text_x, text_y, f"最高觀看：{max_title_} ({view_str}次)",
@@ -302,8 +302,7 @@ def plot_combined_chart(long_titles, long_views, short_titles, short_views, prof
             ax.text(text_x, text_y, f"最高觀看：{max_title_} ({view_str}{unit})",
                     fontsize=12, color="red", ha="left", va="top", transform=ax.transAxes)
 
-        # 箭頭從「最高觀看」文字正中間指向最高點
-        arrow_start = (text_x + 0.03, text_y - 0.05)  # 微調讓箭頭從文字中央出發
+        arrow_start = (text_x + 0.03, text_y - 0.05)
         arrow_end = (max_index, max_view)
 
         ax.annotate(
@@ -329,11 +328,28 @@ def plot_combined_chart(long_titles, long_views, short_titles, short_views, prof
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
 
+    if profile_img:
+        try:
+            size = (60, 60)
+            profile_img = profile_img.resize(size).convert("RGBA")
+            mask_draw = Image.new("L", size, 0)
+            for y in range(size[1]):
+                for x in range(size[0]):
+                    if (x - size[0] / 2) ** 2 + (y - size[1] / 2) ** 2 < (size[0] / 2) ** 2:
+                        mask_draw.putpixel((x, y), 255)
+            profile_img.putalpha(mask_draw)
+
+            ax_img = fig.add_axes([0.02, 0.93, 0.043, 0.06])
+            ax_img.imshow(profile_img)
+            ax_img.axis('off')
+        except Exception:
+            pass
+
     os.makedirs("results", exist_ok=True)
     output_path = os.path.join("results", f"{channel_handle}_頻道公開影片觀看次數折線圖.png")
     plt.savefig(output_path)
-    print(f"已儲存圖表：{output_path}")
-    print("-------------------------------------")
+    print(f"已儲存圖表：{output_path}\n")
+
 
 print("正在繪製圖表...")
 plot_combined_chart(long_titles, long_views, short_titles, short_views, profile_img)
